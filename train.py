@@ -30,7 +30,8 @@ if __name__ == '__main__':
           parser_.add_argument("--backbone", type=str, choices=BackboneRegistry.get_all_names(), default="ncsnpp")
           parser_.add_argument("--sde", type=str, choices=SDERegistry.get_all_names(), default="ouve")
           parser_.add_argument("--no_wandb", action='store_true', help="Turn off logging to W&B, using local default logger instead")
-          
+          parser_.add_argument("--leying_save_dir", type=str,  default="logs")
+
      temp_args, _ = base_parser.parse_known_args()
 
      # Add specific args for ScoreModel, pl.Trainer, the SDE class and backbone DNN class
@@ -64,17 +65,17 @@ if __name__ == '__main__':
 
      # Set up logger configuration
      if args.no_wandb:
-          logger = TensorBoardLogger(save_dir="logs", name="tensorboard")
+          logger = TensorBoardLogger(save_dir=args.leying_save_dir, name="tensorboard")
      else:
-          logger = WandbLogger(project="sgmse", log_model=True, save_dir="logs")
+          logger = WandbLogger(project="sgmse", log_model=True, save_dir=args.leying_save_dir)
           logger.experiment.log_code(".")
 
      # Set up callbacks for logger
-     callbacks = [ModelCheckpoint(dirpath=f"logs/{logger.version}", save_last=True, filename='{epoch}-last')]
+     callbacks = [ModelCheckpoint(dirpath=f"args.leying_save_dir/{logger.version}", save_last=True, filename='{epoch}-last')]
      if args.num_eval_files:
-          checkpoint_callback_pesq = ModelCheckpoint(dirpath=f"logs/{logger.version}", 
+          checkpoint_callback_pesq = ModelCheckpoint(dirpath=f"args.leying_save_dir/{logger.version}", 
                save_top_k=2, monitor="pesq", mode="max", filename='{epoch}-{pesq:.2f}')
-          checkpoint_callback_si_sdr = ModelCheckpoint(dirpath=f"logs/{logger.version}", 
+          checkpoint_callback_si_sdr = ModelCheckpoint(dirpath=f"args.leying_save_dir/{logger.version}", 
                save_top_k=2, monitor="si_sdr", mode="max", filename='{epoch}-{si_sdr:.2f}')
           callbacks += [checkpoint_callback_pesq, checkpoint_callback_si_sdr]
 

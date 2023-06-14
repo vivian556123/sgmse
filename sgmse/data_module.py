@@ -137,7 +137,7 @@ class SpecsDataModule(pl.LightningDataModule):
             spec_transform=self.spec_fwd, **self.kwargs
         )
         if stage == 'fit' or stage is None:
-            self.train_set = Specs(data_dir=self.base_dir, subset='train-100',
+            self.train_set = Specs(data_dir=self.base_dir, subset='train-360',
                 dummy=self.dummy, shuffle_spec=True, format=self.format,
                 normalize=self.normalize, **specs_kwargs)
             self.valid_set = Specs(data_dir=self.base_dir, subset='dev',

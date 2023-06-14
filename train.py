@@ -12,6 +12,9 @@ from sgmse.backbones.shared import BackboneRegistry
 from sgmse.data_module import SpecsDataModule
 from sgmse.sdes import SDERegistry
 from sgmse.model import ScoreModel
+from sgmse.conditional_model import ConditionalScoreModel
+
+import os
 
 
 def get_argparse_groups(parser):
@@ -31,6 +34,7 @@ if __name__ == '__main__':
           parser_.add_argument("--sde", type=str, choices=SDERegistry.get_all_names(), default="ouve")
           parser_.add_argument("--no_wandb", action='store_true', help="Turn off logging to W&B, using local default logger instead")
           parser_.add_argument("--leying_save_dir", type=str,  default="logs")
+          parser_.add_argument("--condition", type=str, choices=("no", "yes"), default="no", help="no for Spec, yes for ConditionalSpec")
 
      temp_args, _ = base_parser.parse_known_args()
 
@@ -50,20 +54,37 @@ if __name__ == '__main__':
           parser.add_argument_group("DataModule", description=data_module_cls.__name__))
      # Parse args and separate into groups
      args = parser.parse_args()
+     print(args)
+     # if args.leying_save_dir does not exist
+     if not os.path.exists(args.leying_save_dir):
+          os.makedirs(args.leying_save_dir)
+     with open (os.path.join(args.leying_save_dir, "args.txt"), "w") as f:
+          f.write(str(args))
      arg_groups = get_argparse_groups(parser)
 
      # Initialize logger, trainer, model, datamodule
-     model = ScoreModel(
-          backbone=args.backbone, sde=args.sde, data_module_cls=data_module_cls,
-          **{
-               **vars(arg_groups['ScoreModel']),
-               **vars(arg_groups['SDE']),
-               **vars(arg_groups['Backbone']),
-               **vars(arg_groups['DataModule'])
-          }
-     )
+     if args.condition == "no":
+          model = ScoreModel(
+               backbone=args.backbone, sde=args.sde, data_module_cls=data_module_cls,
+               **{
+                    **vars(arg_groups['ScoreModel']),
+                    **vars(arg_groups['SDE']),
+                    **vars(arg_groups['Backbone']),
+                    **vars(arg_groups['DataModule'])
+               }
+          )
+     elif args.condition == "yes":
+          model = ConditionalScoreModel(
+               backbone=args.backbone, sde=args.sde, data_module_cls=data_module_cls,
+               **{
+                    **vars(arg_groups['ScoreModel']),
+                    **vars(arg_groups['SDE']),
+                    **vars(arg_groups['Backbone']),
+                    **vars(arg_groups['DataModule'])
+               }
+          )
 
-     # Set up logger configuration
+     # Set up logger configuration     
      if args.no_wandb:
           logger = TensorBoardLogger(save_dir=args.leying_save_dir, name="tensorboard")
      else:
@@ -71,11 +92,11 @@ if __name__ == '__main__':
           logger.experiment.log_code(".")
 
      # Set up callbacks for logger
-     callbacks = [ModelCheckpoint(dirpath=f"args.leying_save_dir/{logger.version}", save_last=True, filename='{epoch}-last')]
+     callbacks = [ModelCheckpoint(dirpath=f"{args.leying_save_dir}/{logger.version}", save_last=True, filename='{epoch}-last')]
      if args.num_eval_files:
-          checkpoint_callback_pesq = ModelCheckpoint(dirpath=f"args.leying_save_dir/{logger.version}", 
+          checkpoint_callback_pesq = ModelCheckpoint(dirpath=f"{args.leying_save_dir}/{logger.version}", 
                save_top_k=2, monitor="pesq", mode="max", filename='{epoch}-{pesq:.2f}')
-          checkpoint_callback_si_sdr = ModelCheckpoint(dirpath=f"args.leying_save_dir/{logger.version}", 
+          checkpoint_callback_si_sdr = ModelCheckpoint(dirpath=f"{args.leying_save_dir}/{logger.version}", 
                save_top_k=2, monitor="si_sdr", mode="max", filename='{epoch}-{si_sdr:.2f}')
           callbacks += [checkpoint_callback_pesq, checkpoint_callback_si_sdr]
 

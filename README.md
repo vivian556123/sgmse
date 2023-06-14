@@ -105,3 +105,15 @@ We kindly ask you to cite our papers in your publication when using any of our r
 
 ## Leying Implementation
 python train.py --base_dir /modelblob/users/v-leyzhang/data/LibriMix/Libri2Mix_mel_data/Libri2Mix/wav16k/min --resume_from_checkpoint /modelblob/users/v-leyzhang/exp/SGMSE/pretrained-checkpoint/train_vb_29nqe0uh_epoch=115.ckpt --no_wandb --gpus 8
+
+
+python train.py --base_dir /modelblob/users/v-leyzhang/data/LibriMix/Libri2Mix_mel_data/Libri2Mix/wav16k/min --leying_save_dir /modelblob/users/v-leyzhang/exp/SGMSE/libri2mix_train360_enhance/logs --no_wandb --gpus 8
+
+
+Evaluation:
+
+python enhancement.py --test_dir /home/v-leyzhang/blob/users/v-leyzhang/data/LibriMix/Libri2Mix_mel_data/Libri2Mix/wav16k/min/test --enhanced_dir /home/v-leyzhang/tmp/sgmse_librimix --ckpt /home/v-leyzhang/blob/users/v-leyzhang/exp/SGMSE/pretrained-checkpoint/train_vb_29nqe0uh_epoch=115.ckpt
+
+
+
+TORCH_DISTRIBUTED_DEBUG=DETAIL CUDA_VISIBLE_DEVICES=1 python train.py --base_dir /home/v-leyzhang/blob/users/v-leyzhang/data/LibriMix/Libri2Mix_mel_data/Libri2Mix/wav16k/min --leying_save_dir=/home/v-leyzhang/sgmse_test --no_wandb --condition_on_spkemb=yes --condition=yes --backbone=conditionalncsnpp --batch_size=4 --gpus=1

@@ -35,8 +35,8 @@ get_normalization = normalization.get_normalization
 default_initializer = layers.default_init
 
 
-@BackboneRegistry.register("ncsnpp")
-class NCSNpp(nn.Module):
+@BackboneRegistry.register("conditionalncsnpp")
+class ConditionalNCSNpp(nn.Module):
     """NCSN++ model, adapted from https://github.com/yang-song/score_sde repository"""
 
     @staticmethod
@@ -56,7 +56,7 @@ class NCSNpp(nn.Module):
         fir = True,
         fir_kernel = [1, 3, 3, 1],
         skip_rescale = True,
-        resblock_type = 'biggan',
+        resblock_type = 'conditional_biggan',
         progressive = 'output_skip',
         progressive_input = 'input_skip',
         progressive_combine = 'sum',
@@ -159,7 +159,8 @@ class NCSNpp(nn.Module):
                 cross_attention_dim=256, attn_num_head_channels=4)
         else:
             raise ValueError(f'resblock type {resblock_type} unrecognized.')
-
+        print("resblock_type",resblock_type)
+        
         # Downsampling block
 
         channels = num_channels
@@ -261,7 +262,7 @@ class NCSNpp(nn.Module):
         parser.set_defaults(centered=True)
         return parser
 
-    def forward(self, x, time_cond):
+    def forward(self, x, time_cond, condition):
         # timestep/noise_level embedding; only for continuous training
         modules = self.all_modules
         m_idx = 0
@@ -310,7 +311,7 @@ class NCSNpp(nn.Module):
         for i_level in range(self.num_resolutions):
             # Residual blocks for this resolution
             for i_block in range(self.num_res_blocks):
-                h = modules[m_idx](hs[-1], temb)
+                h = modules[m_idx](hs[-1], temb, condition)
                 m_idx += 1
                 # Attention layer (optional)
                 if h.shape[-2] in self.attn_resolutions: # edit: check H dim (-2) not W dim (-1)
@@ -324,7 +325,7 @@ class NCSNpp(nn.Module):
                     h = modules[m_idx](hs[-1])
                     m_idx += 1
                 else:
-                    h = modules[m_idx](hs[-1], temb)
+                    h = modules[m_idx](hs[-1], temb, condition)
                     m_idx += 1
 
                 if self.progressive_input == 'input_skip':   # Combine h with x
@@ -343,11 +344,11 @@ class NCSNpp(nn.Module):
                 hs.append(h)
 
         h = hs[-1] # actualy equal to: h = h
-        h = modules[m_idx](h, temb)  # ResNet block
+        h = modules[m_idx](h, temb, condition)  # ResNet block
         m_idx += 1
         h = modules[m_idx](h)  # Attention block
         m_idx += 1
-        h = modules[m_idx](h, temb)  # ResNet block
+        h = modules[m_idx](h, temb, condition)  # ResNet block
         m_idx += 1
 
         pyramid = None
@@ -355,7 +356,7 @@ class NCSNpp(nn.Module):
         # Upsampling block
         for i_level in reversed(range(self.num_resolutions)):
             for i_block in range(self.num_res_blocks + 1):
-                h = modules[m_idx](torch.cat([h, hs.pop()], dim=1), temb)
+                h = modules[m_idx](torch.cat([h, hs.pop()], dim=1), temb, condition)
                 m_idx += 1
 
             # edit: from -1 to -2
@@ -402,7 +403,7 @@ class NCSNpp(nn.Module):
                     h = modules[m_idx](h)
                     m_idx += 1
                 else:
-                    h = modules[m_idx](h, temb)  # Upspampling
+                    h = modules[m_idx](h, temb, condition)  # Upspampling
                     m_idx += 1
 
         assert not hs

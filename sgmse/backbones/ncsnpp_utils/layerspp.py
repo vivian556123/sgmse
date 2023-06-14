@@ -22,6 +22,11 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import numpy as np
+from diffusers.models.attention import BasicTransformerBlock
+from diffusers.models.embeddings import PatchEmbed
+from diffusers.models.modeling_utils import ModelMixin
+from diffusers.models.transformer_2d import Transformer2DModel
+from diffusers.models.attention_processor import Attention
 
 conv1x1 = layers.ddpm_conv1x1
 conv3x3 = layers.ddpm_conv3x3
@@ -268,6 +273,108 @@ class ResnetBlockBigGANpp(nn.Module):
     if self.in_ch != self.out_ch or self.up or self.down:
       x = self.Conv_2(x)
 
+    if not self.skip_rescale:
+      return x + h
+    else:
+      return (x + h) / np.sqrt(2.)
+
+
+
+
+
+class ResnetBlockConditionalBigGANpp(nn.Module):
+  def __init__(self, act, in_ch, out_ch=None, temb_dim=None, up=False, down=False,
+               dropout=0.1, fir=False, fir_kernel=(1, 3, 3, 1),
+               skip_rescale=True, init_scale=0.,
+               cross_attention_dim=256, attn_num_head_channels=4):
+    super().__init__()
+
+    out_ch = out_ch if out_ch else in_ch
+    self.GroupNorm_0 = nn.GroupNorm(num_groups=min(in_ch // 4, 32), num_channels=in_ch, eps=1e-6)
+    self.up = up
+    self.down = down
+    self.fir = fir
+    self.fir_kernel = fir_kernel
+
+    self.Conv_0 = conv3x3(in_ch, out_ch)
+    if temb_dim is not None:
+      self.Dense_0 = nn.Linear(temb_dim, out_ch)
+      self.Dense_0.weight.data = default_init()(self.Dense_0.weight.shape)
+      nn.init.zeros_(self.Dense_0.bias)
+
+    self.GroupNorm_1 = nn.GroupNorm(num_groups=min(out_ch // 4, 32), num_channels=out_ch, eps=1e-6)
+    self.Dropout_0 = nn.Dropout(dropout)
+    self.Conv_1 = conv3x3(out_ch, out_ch, init_scale=init_scale)
+    if in_ch != out_ch or up or down:
+      self.Conv_2 = conv1x1(in_ch, out_ch)
+
+    self.skip_rescale = skip_rescale
+    self.act = act
+    self.in_ch = in_ch
+    self.out_ch = out_ch
+    
+    # Add a cross attention module here
+    # self.attention = Transformer2DModel(
+    #                     num_attention_heads = attn_num_head_channels,
+    #                     attention_head_dim= out_ch // attn_num_head_channels,
+    #                     in_channels=out_ch,
+    #                     num_layers=1,
+    #                     cross_attention_dim=cross_attention_dim,
+    #                     norm_num_groups=128,
+    #                     use_linear_projection=False,
+    #                     only_cross_attention=False,
+    #                     upcast_attention=False,
+    #                 )
+    self.spk_emb_trans = nn.Linear(256, out_ch)
+    #self.cross_attn_layers=PreNorm(out_ch, CrossAttention(out_ch)) 
+    self.cross_attn = nn.MultiheadAttention(out_ch, 8, batch_first =True) 
+
+  def forward(self, x, temb=None, encoder_hidden_states=None):
+    h = self.act(self.GroupNorm_0(x))
+
+    if self.up:
+      if self.fir:
+        h = up_or_down_sampling.upsample_2d(h, self.fir_kernel, factor=2)
+        x = up_or_down_sampling.upsample_2d(x, self.fir_kernel, factor=2)
+      else:
+        h = up_or_down_sampling.naive_upsample_2d(h, factor=2)
+        x = up_or_down_sampling.naive_upsample_2d(x, factor=2)
+    elif self.down:
+      if self.fir:
+        h = up_or_down_sampling.downsample_2d(h, self.fir_kernel, factor=2)
+        x = up_or_down_sampling.downsample_2d(x, self.fir_kernel, factor=2)
+      else:
+        h = up_or_down_sampling.naive_downsample_2d(h, factor=2)
+        x = up_or_down_sampling.naive_downsample_2d(x, factor=2)
+
+    h = self.Conv_0(h)
+    # Add bias to each feature map conditioned on the time embedding
+    if temb is not None:
+      h += self.Dense_0(self.act(temb))[:, :, None, None]
+    h = self.act(self.GroupNorm_1(h))
+    h = self.Dropout_0(h)
+    h = self.Conv_1(h)
+
+    if self.in_ch != self.out_ch or self.up or self.down:
+      x = self.Conv_2(x)
+
+
+    # Add cross attention block
+    # if encoder_hidden_states is not None:
+    #   h = self.attention(h, encoder_hidden_states).sample
+    batch, _, height, width = h.shape
+    residual = h
+
+    inner_dim = h.shape[1]
+    h = h.permute(0, 2, 3, 1).reshape(batch, height * width, inner_dim)
+    encoder_hidden_states = self.spk_emb_trans(encoder_hidden_states)
+    #h = self.proj_in(h) 
+    #print("h.shape",h.shape,"temb", temb.shape,"encoder_hidden_states", encoder_hidden_states.shape, "encoder_hidden_states.dim",encoder_hidden_states.dim())
+    h, _ = self.cross_attn(query=h, key=encoder_hidden_states, value=encoder_hidden_states)
+    #h = self.proj_out(h)
+    h = h.reshape(batch, height, width, inner_dim).permute(0, 3, 1, 2).contiguous()
+    h = h + residual
+      
     if not self.skip_rescale:
       return x + h
     else:

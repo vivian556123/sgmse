@@ -8,6 +8,8 @@ from glob import glob
 from torchaudio import load
 import numpy as np
 import torch.nn.functional as F
+import wespeakerruntime as wespeaker
+
 
 
 def get_window(window_type, window_length):
@@ -27,7 +29,7 @@ class Specs(Dataset):
         # Read file paths according to file naming format.
         if format == "default":
             self.clean_files = sorted(glob(join(data_dir, subset) + '/s1/*.wav'))
-            self.noisy_files = sorted(glob(join(data_dir, subset) + '/mix_single/*.wav'))
+            self.noisy_files = sorted(glob(join(data_dir, subset) + '/mix_clean/*.wav'))
         else:
             # Feel free to add your own directory format
             raise NotImplementedError(f"Directory format {format} unknown!")
@@ -89,6 +91,80 @@ class Specs(Dataset):
             return len(self.clean_files)
 
 
+
+class ConditionalSpecs(Dataset):
+    def __init__(self, data_dir, subset, dummy, shuffle_spec, num_frames,
+            format='default', normalize="noisy", spec_transform=None,
+            stft_kwargs=None, **ignored_kwargs):
+
+        # Read file paths according to file naming format.
+        if format == "default":
+            self.clean_files = sorted(glob(join(data_dir, subset) + '/s1/*.wav'))
+            self.noisy_files = sorted(glob(join(data_dir, subset) + '/mix_single/*.wav'))
+        else:
+            # Feel free to add your own directory format
+            raise NotImplementedError(f"Directory format {format} unknown!")
+
+        self.dummy = dummy
+        self.num_frames = num_frames
+        self.shuffle_spec = shuffle_spec
+        self.normalize = normalize
+        self.spec_transform = spec_transform
+
+        assert all(k in stft_kwargs.keys() for k in ["n_fft", "hop_length", "center", "window"]), "misconfigured STFT kwargs"
+        self.stft_kwargs = stft_kwargs
+        self.hop_length = self.stft_kwargs["hop_length"]
+        assert self.stft_kwargs.get("center", None) == True, "'center' must be True for current implementation"
+        
+        self.spk_emb_extractor=wespeaker.Speaker(lang='en')
+
+    def __getitem__(self, i):
+        x, _ = load(self.clean_files[i])
+        y, _ = load(self.noisy_files[i])
+        spk_emb = self.spk_emb_extractor.extract_embedding(self.clean_files[i])
+        #print("spk_emb",spk_emb.shape)
+        # formula applies for center=True
+        target_len = (self.num_frames - 1) * self.hop_length
+        current_len = x.size(-1)
+        pad = max(target_len - current_len, 0)
+        if pad == 0:
+            # extract random part of the audio file
+            if self.shuffle_spec:
+                start = int(np.random.uniform(0, current_len-target_len))
+            else:
+                start = int((current_len-target_len)/2)
+            x = x[..., start:start+target_len]
+            y = y[..., start:start+target_len]
+        else:
+            # pad audio if the length T is smaller than num_frames
+            x = F.pad(x, (pad//2, pad//2+(pad%2)), mode='constant')
+            y = F.pad(y, (pad//2, pad//2+(pad%2)), mode='constant')
+
+        # normalize w.r.t to the noisy or the clean signal or not at all
+        # to ensure same clean signal power in x and y.
+        if self.normalize == "noisy":
+            normfac = y.abs().max()
+        elif self.normalize == "clean":
+            normfac = x.abs().max()
+        elif self.normalize == "not":
+            normfac = 1.0
+        x = x / normfac
+        y = y / normfac
+
+        X = torch.stft(x, **self.stft_kwargs)
+        Y = torch.stft(y, **self.stft_kwargs)
+
+        X, Y = self.spec_transform(X), self.spec_transform(Y)
+        return X, Y, spk_emb
+
+    def __len__(self):
+        if self.dummy:
+            # for debugging shrink the data set size
+            return int(len(self.clean_files)/200)
+        else:
+            return len(self.clean_files)
+
+
 class SpecsDataModule(pl.LightningDataModule):
     @staticmethod
     def add_argparse_args(parser):
@@ -105,13 +181,15 @@ class SpecsDataModule(pl.LightningDataModule):
         parser.add_argument("--spec_abs_exponent", type=float, default=0.5, help="Exponent e for the transformation abs(z)**e * exp(1j*angle(z)). 0.5 by default.")
         parser.add_argument("--normalize", type=str, choices=("clean", "noisy", "not"), default="noisy", help="Normalize the input waveforms by the clean signal, the noisy signal, or not at all.")
         parser.add_argument("--transform_type", type=str, choices=("exponent", "log", "none"), default="exponent", help="Spectogram transformation for input representation.")
+        parser.add_argument("--condition_on_spkemb", type=str, choices=("no", "yes"), default="no", help="no for Spec, yes for ConditionalSpec")
+
         return parser
 
     def __init__(
         self, base_dir, format='default', batch_size=8,
         n_fft=510, hop_length=128, num_frames=256, window='hann',
         num_workers=4, dummy=False, spec_factor=0.15, spec_abs_exponent=0.5,
-        gpu=True, normalize='noisy', transform_type="exponent", **kwargs
+        gpu=True, normalize='noisy', transform_type="exponent",condition_on_spkemb="no", **kwargs
     ):
         super().__init__()
         self.base_dir = base_dir
@@ -130,6 +208,7 @@ class SpecsDataModule(pl.LightningDataModule):
         self.normalize = normalize
         self.transform_type = transform_type
         self.kwargs = kwargs
+        self.condition_on_spkemb = condition_on_spkemb
 
     def setup(self, stage=None):
         specs_kwargs = dict(
@@ -137,16 +216,30 @@ class SpecsDataModule(pl.LightningDataModule):
             spec_transform=self.spec_fwd, **self.kwargs
         )
         if stage == 'fit' or stage is None:
-            self.train_set = Specs(data_dir=self.base_dir, subset='train-360',
-                dummy=self.dummy, shuffle_spec=True, format=self.format,
-                normalize=self.normalize, **specs_kwargs)
-            self.valid_set = Specs(data_dir=self.base_dir, subset='dev',
-                dummy=self.dummy, shuffle_spec=False, format=self.format,
-                normalize=self.normalize, **specs_kwargs)
+            print("condition_on_spkemb",self.condition_on_spkemb)
+            if  self.condition_on_spkemb == "no":
+                self.train_set = Specs(data_dir=self.base_dir, subset='train-360',
+                    dummy=self.dummy, shuffle_spec=True, format=self.format,
+                    normalize=self.normalize, **specs_kwargs)
+                self.valid_set = Specs(data_dir=self.base_dir, subset='dev',
+                    dummy=self.dummy, shuffle_spec=False, format=self.format,
+                    normalize=self.normalize, **specs_kwargs)
+            elif  self.condition_on_spkemb == "yes":
+                self.train_set = ConditionalSpecs(data_dir=self.base_dir, subset='train-360',
+                    dummy=self.dummy, shuffle_spec=True, format=self.format,
+                    normalize=self.normalize, **specs_kwargs)
+                self.valid_set = ConditionalSpecs(data_dir=self.base_dir, subset='dev',
+                    dummy=self.dummy, shuffle_spec=False, format=self.format,
+                    normalize=self.normalize, **specs_kwargs)
         if stage == 'test' or stage is None:
-            self.test_set = Specs(data_dir=self.base_dir, subset='test',
-                dummy=self.dummy, shuffle_spec=False, format=self.format,
-                normalize=self.normalize, **specs_kwargs)
+            if  self.condition_on_spkemb == "no":
+                self.test_set = Specs(data_dir=self.base_dir, subset='test',
+                    dummy=self.dummy, shuffle_spec=False, format=self.format,
+                    normalize=self.normalize, **specs_kwargs)
+            elif self.condition_on_spkemb == "yes":
+                self.test_set = ConditionalSpecs(data_dir=self.base_dir, subset='test',
+                    dummy=self.dummy, shuffle_spec=False, format=self.format,
+                    normalize=self.normalize, **specs_kwargs)
 
     def spec_fwd(self, spec):
         if self.transform_type == "exponent":

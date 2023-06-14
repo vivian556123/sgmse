@@ -21,7 +21,7 @@ if __name__ == '__main__':
     parser.add_argument("--N", type=int, default=30, help="Number of reverse steps")
     args = parser.parse_args()
 
-    noisy_dir = join(args.test_dir, 'noisy/')
+    noisy_dir = join(args.test_dir, 'mix_single/')
     checkpoint_file = args.ckpt
     corrector_cls = args.corrector
 

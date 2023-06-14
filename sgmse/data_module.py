@@ -26,8 +26,8 @@ class Specs(Dataset):
 
         # Read file paths according to file naming format.
         if format == "default":
-            self.clean_files = sorted(glob(join(data_dir, subset) + '/clean/*.wav'))
-            self.noisy_files = sorted(glob(join(data_dir, subset) + '/noisy/*.wav'))
+            self.clean_files = sorted(glob(join(data_dir, subset) + '/s1/*.wav'))
+            self.noisy_files = sorted(glob(join(data_dir, subset) + '/mix_clean/*.wav'))
         else:
             # Feel free to add your own directory format
             raise NotImplementedError(f"Directory format {format} unknown!")
@@ -137,10 +137,10 @@ class SpecsDataModule(pl.LightningDataModule):
             spec_transform=self.spec_fwd, **self.kwargs
         )
         if stage == 'fit' or stage is None:
-            self.train_set = Specs(data_dir=self.base_dir, subset='train',
+            self.train_set = Specs(data_dir=self.base_dir, subset='train-100',
                 dummy=self.dummy, shuffle_spec=True, format=self.format,
                 normalize=self.normalize, **specs_kwargs)
-            self.valid_set = Specs(data_dir=self.base_dir, subset='valid',
+            self.valid_set = Specs(data_dir=self.base_dir, subset='dev',
                 dummy=self.dummy, shuffle_spec=False, format=self.format,
                 normalize=self.normalize, **specs_kwargs)
         if stage == 'test' or stage is None:

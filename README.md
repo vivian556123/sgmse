@@ -100,3 +100,8 @@ We kindly ask you to cite our papers in your publication when using any of our r
 >[1] Simon Welker, Julius Richter, Timo Gerkmann. "Speech Enhancement with Score-Based Generative Models in the Complex STFT Domain", ISCA Interspeech, Incheon, Korea, Sep. 2022.
 >
 >[2] Julius Richter, Simon Welker, Jean-Marie Lemercier, Bunlong Lay, Timo Gerkmann. "Speech Enhancement and Dereverberation with Diffusion-Based Generative Models", IEEE/ACM Trans. Audio, Speech, Language Proc., 2023, accepted.
+
+
+
+## Leying Implementation
+python train.py --base_dir /modelblob/users/v-leyzhang/data/LibriMix/Libri2Mix_mel_data/Libri2Mix/wav16k/min --resume_from_checkpoint /modelblob/users/v-leyzhang/exp/SGMSE/pretrained-checkpoint/train_vb_29nqe0uh_epoch=115.ckpt --no_wandb --gpus 8

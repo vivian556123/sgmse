@@ -27,7 +27,7 @@ class Specs(Dataset):
         # Read file paths according to file naming format.
         if format == "default":
             self.clean_files = sorted(glob(join(data_dir, subset) + '/s1/*.wav'))
-            self.noisy_files = sorted(glob(join(data_dir, subset) + '/mix_clean/*.wav'))
+            self.noisy_files = sorted(glob(join(data_dir, subset) + '/mix_single/*.wav'))
         else:
             # Feel free to add your own directory format
             raise NotImplementedError(f"Directory format {format} unknown!")

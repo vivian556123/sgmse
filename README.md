@@ -116,4 +116,4 @@ python enhancement.py --test_dir /home/v-leyzhang/blob/users/v-leyzhang/data/Lib
 
 
 
-TORCH_DISTRIBUTED_DEBUG=DETAIL CUDA_VISIBLE_DEVICES=1 python train.py --base_dir /home/v-leyzhang/blob/users/v-leyzhang/data/LibriMix/Libri2Mix_mel_data/Libri2Mix/wav16k/min --leying_save_dir=/home/v-leyzhang/sgmse_test --no_wandb --condition_on_spkemb=yes --condition=yes --backbone=conditionalncsnpp --batch_size=4 --gpus=1
+TORCH_DISTRIBUTED_DEBUG=DETAIL CUDA_VISIBLE_DEVICES=1 python train.py --base_dir /modelblob/users/v-leyzhang/data/LibriMix/Libri2Mix_mel_data/Libri2Mix/wav16k/min --leying_save_dir=/modelblob/users/v-leyzhang/exp/SGMSE/sgmse_TSE --no_wandb --condition_on_spkemb=yes --condition=yes --backbone=conditionalncsnpp --batch_size=4 --gpus=8

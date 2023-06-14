@@ -5,6 +5,8 @@ from pesq import pesq
 from pystoi import stoi
 
 from .other import si_sdr, pad_spec
+import wespeakerruntime as wespeaker
+
 
 # Settings
 sr = 16000
@@ -23,6 +25,7 @@ def evaluate_model(model, num_eval_files):
     indices = torch.linspace(0, total_num_files-1, num_eval_files, dtype=torch.int)
     clean_files = list(clean_files[i] for i in indices)
     noisy_files = list(noisy_files[i] for i in indices)
+    spk_emb_extractor=wespeaker.Speaker(lang='en')
 
     _pesq = 0
     _si_sdr = 0
@@ -33,6 +36,7 @@ def evaluate_model(model, num_eval_files):
         x, _ = load(clean_file)
         y, _ = load(noisy_file) 
         T_orig = x.size(1)   
+        spk_emb=spk_emb_extractor.extract_embedding(clean_files[i])
 
         # Normalize per utterance
         norm_factor = y.abs().max()

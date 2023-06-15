@@ -71,7 +71,7 @@ class AnnealedLangevinDynamics(Corrector):
     def update_fn(self, x, t, *args):
         n_steps = self.n_steps
         target_snr = self.snr
-        std = self.sde.marginal_prob(x, t, *args)[1]
+        std = self.sde.marginal_prob(x, t, args[0])[1]
 
         for _ in range(n_steps):
             grad = self.score_fn(x, t, *args)

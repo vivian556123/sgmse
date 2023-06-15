@@ -18,21 +18,29 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     test_dir = args.test_dir
-    clean_dir = join(test_dir, "clean/")
-    noisy_dir = join(test_dir, "noisy/")
+    clean_dir = join(test_dir, "s1/")
+    noisy_dir = join(test_dir, "mix_clean/")
     enhanced_dir = args.enhanced_dir
 
-    data = {"filename": [], "pesq": [], "estoi": [], "si_sdr": [], "si_sir": [],  "si_sar": []}
+    data = {"filename": [], "pesq": [], "estoi": [], "si_sdr": [], "si_sir": [],  "si_sar": [], "si_sdr_i": [], "si_sir_i": [],  "si_sar_i": []}
     sr = 16000
 
-    # Evaluate standard metrics
-    noisy_files = sorted(glob('{}/*.wav'.format(noisy_dir)))
-    for noisy_file in tqdm(noisy_files):
-        filename = noisy_file.split('/')[-1]
+    # Evaluate standard metrics   
+    enhanced_files = sorted(glob('{}/*_use_vae_predmel0_200steps.wav'.format(enhanced_dir)))
+    print("len(enhanced_files): ", len(enhanced_files))
+    for enhanced_file in tqdm(enhanced_files):
+        filename = enhanced_file.split('/')[-1].split("_use")[0]+".wav"
         x, _ = read(join(clean_dir, filename))
-        y, _ = read(noisy_file)
+        y, _ = read(join(noisy_dir, filename))
+
+        
+        x_method, _ = read(enhanced_file)
+        min_len = min(len(x), len(y),len(x_method))
+        
+        x = x[:min_len]
+        y = y[:min_len]
+        x_method = x_method[:min_len]
         n = y - x 
-        x_method, _ = read(join(enhanced_dir, filename))
 
         data["filename"].append(filename)
         data["pesq"].append(pesq(sr, x, x_method, 'wb'))
@@ -40,6 +48,10 @@ if __name__ == '__main__':
         data["si_sdr"].append(energy_ratios(x_method, x, n)[0])
         data["si_sir"].append(energy_ratios(x_method, x, n)[1])
         data["si_sar"].append(energy_ratios(x_method, x, n)[2])
+        data["si_sdr_i"].append(energy_ratios(x_method, x, n)[0] - energy_ratios(y, x, n)[0])
+        data["si_sir_i"].append(energy_ratios(x_method, x, n)[1] - energy_ratios(y, x, n)[1])
+        data["si_sar_i"].append(energy_ratios(x_method, x, n)[2] - energy_ratios(y, x, n)[2])
+        
 
     # Save results as DataFrame    
     df = pd.DataFrame(data)
@@ -64,6 +76,9 @@ if __name__ == '__main__':
     print("SI-SDR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sdr"].to_numpy())))
     print("SI-SIR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sir"].to_numpy())))
     print("SI-SAR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sar"].to_numpy())))
+    print("SI-SDR_I: {:.1f} ± {:.1f}".format(*mean_std(df["si_sdr_i"].to_numpy())))
+    print("SI-SIR_I: {:.1f} ± {:.1f}".format(*mean_std(df["si_sir_i"].to_numpy())))
+    print("SI-SAR_I: {:.1f} ± {:.1f}".format(*mean_std(df["si_sar_i"].to_numpy())))
 
     # Save DataFrame as csv file
     df.to_csv(join(enhanced_dir, "_results.csv"), index=False)

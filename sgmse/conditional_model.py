@@ -6,10 +6,10 @@ import torch
 import pytorch_lightning as pl
 from torch_ema import ExponentialMovingAverage
 
-from sgmse import sampling
+from sgmse import conditional_sampling as sampling
 from sgmse.sdes import SDERegistry
 from sgmse.backbones import BackboneRegistry
-from sgmse.util.inference import evaluate_model
+from sgmse.util.inference import evaluate_model, evaluate_model_on_condition
 from sgmse.util.other import pad_spec
 import wespeakerruntime as wespeaker
 
@@ -132,10 +132,10 @@ class ConditionalScoreModel(pl.LightningModule):
 
         # Evaluate speech enhancement performance
         if batch_idx == 0 and self.num_eval_files != 0:
-            pesq = 0.1
-            si_sdr = 0.1
-            estoi = 0.1
-            #pesq, si_sdr, estoi = evaluate_model(self, self.num_eval_files)
+            # pesq = 0.1
+            # si_sdr = 0.1
+            # estoi = 0.1
+            pesq, si_sdr, estoi = evaluate_model_on_condition(self, self.num_eval_files)
             self.log('pesq', pesq, on_step=False, on_epoch=True)
             self.log('si_sdr', si_sdr, on_step=False, on_epoch=True)
             self.log('estoi', estoi, on_step=False, on_epoch=True)
@@ -155,21 +155,22 @@ class ConditionalScoreModel(pl.LightningModule):
         self.ema.to(*args, **kwargs)
         return super().to(*args, **kwargs)
 
-    def get_pc_sampler(self, predictor_name, corrector_name, y, N=None, minibatch=None, **kwargs):
+    def get_pc_sampler(self, predictor_name, corrector_name, y, condition, N=None, minibatch=None, **kwargs):
         N = self.sde.N if N is None else N
         sde = self.sde.copy()
         sde.N = N
 
         kwargs = {"eps": self.t_eps, **kwargs}
         if minibatch is None:
-            return sampling.get_pc_sampler(predictor_name, corrector_name, sde=sde, score_fn=self, y=y, **kwargs)
+            return sampling.get_pc_sampler(predictor_name, corrector_name, sde=sde, score_fn=self, y=y,condition = condition, **kwargs)
         else:
             M = y.shape[0]
             def batched_sampling_fn():
                 samples, ns = [], []
                 for i in range(int(ceil(M / minibatch))):
                     y_mini = y[i*minibatch:(i+1)*minibatch]
-                    sampler = sampling.get_pc_sampler(predictor_name, corrector_name, sde=sde, score_fn=self, y=y_mini, **kwargs)
+                    condition_mini = condition[i*minibatch:(i+1)*minibatch]
+                    sampler = sampling.get_pc_sampler(predictor_name, corrector_name, sde=sde, score_fn=self, y=y_mini, condition = condition_mini, **kwargs)
                     sample, n = sampler()
                     samples.append(sample)
                     ns.append(n)
@@ -177,21 +178,22 @@ class ConditionalScoreModel(pl.LightningModule):
                 return samples, ns
             return batched_sampling_fn
 
-    def get_ode_sampler(self, y, N=None, minibatch=None, **kwargs):
+    def get_ode_sampler(self, y, condition, N=None, minibatch=None, **kwargs):
         N = self.sde.N if N is None else N
         sde = self.sde.copy()
         sde.N = N
 
         kwargs = {"eps": self.t_eps, **kwargs}
         if minibatch is None:
-            return sampling.get_ode_sampler(sde, self, y=y, **kwargs)
+            return sampling.get_ode_sampler(sde, self, y=y,condition=condition, **kwargs)
         else:
             M = y.shape[0]
             def batched_sampling_fn():
                 samples, ns = [], []
                 for i in range(int(ceil(M / minibatch))):
                     y_mini = y[i*minibatch:(i+1)*minibatch]
-                    sampler = sampling.get_ode_sampler(sde, self, y=y_mini, **kwargs)
+                    condition_mini =condition[i*minibatch:(i+1)*minibatch]
+                    sampler = sampling.get_ode_sampler(sde, self, y=y_mini, condition=condition_mini, **kwargs)
                     sample, n = sampler()
                     samples.append(sample)
                     ns.append(n)
@@ -226,7 +228,7 @@ class ConditionalScoreModel(pl.LightningModule):
     def _istft(self, spec, length=None):
         return self.data_module.istft(spec, length)
 
-    def enhance(self, y, sampler_type="pc", predictor="reverse_diffusion",
+    def enhance(self, y, condition, sampler_type="pc", predictor="reverse_diffusion",
         corrector="ald", N=30, corrector_steps=1, snr=0.5, timeit=False,
         **kwargs
     ):
@@ -241,11 +243,11 @@ class ConditionalScoreModel(pl.LightningModule):
         Y = torch.unsqueeze(self._forward_transform(self._stft(y.cuda())), 0)
         Y = pad_spec(Y)
         if sampler_type == "pc":
-            sampler = self.get_pc_sampler(predictor, corrector, Y.cuda(), N=N, 
+            sampler = self.get_pc_sampler(predictor, corrector, Y.cuda(), condition.cuda(), N=N, 
                 corrector_steps=corrector_steps, snr=snr, intermediate=False,
                 **kwargs)
         elif sampler_type == "ode":
-            sampler = self.get_ode_sampler(Y.cuda(), N=N, **kwargs)
+            sampler = self.get_ode_sampler(Y.cuda(), condition.cuda(), N=N, **kwargs)
         else:
             print("{} is not a valid sampler type!".format(sampler_type))
         sample, nfe = sampler()

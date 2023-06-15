@@ -218,14 +218,14 @@ class SpecsDataModule(pl.LightningDataModule):
         if stage == 'fit' or stage is None:
             print("condition_on_spkemb",self.condition_on_spkemb)
             if  self.condition_on_spkemb == "no":
-                self.train_set = Specs(data_dir=self.base_dir, subset='train-360',
+                self.train_set = Specs(data_dir=self.base_dir, subset='train-100',
                     dummy=self.dummy, shuffle_spec=True, format=self.format,
                     normalize=self.normalize, **specs_kwargs)
                 self.valid_set = Specs(data_dir=self.base_dir, subset='dev',
                     dummy=self.dummy, shuffle_spec=False, format=self.format,
                     normalize=self.normalize, **specs_kwargs)
             elif  self.condition_on_spkemb == "yes":
-                self.train_set = ConditionalSpecs(data_dir=self.base_dir, subset='train-360',
+                self.train_set = ConditionalSpecs(data_dir=self.base_dir, subset='train-100',
                     dummy=self.dummy, shuffle_spec=True, format=self.format,
                     normalize=self.normalize, **specs_kwargs)
                 self.valid_set = ConditionalSpecs(data_dir=self.base_dir, subset='dev',

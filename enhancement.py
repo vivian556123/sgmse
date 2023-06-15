@@ -8,7 +8,12 @@ from torchaudio import load
 from tqdm import tqdm
 
 from sgmse.model import ScoreModel
+from sgmse.conditional_model import ConditionalScoreModel
+
 from sgmse.util.other import ensure_dir, pad_spec
+
+import wespeakerruntime as wespeaker
+
 
 if __name__ == '__main__':
     parser = ArgumentParser()
@@ -19,9 +24,12 @@ if __name__ == '__main__':
     parser.add_argument("--corrector_steps", type=int, default=1, help="Number of corrector steps")
     parser.add_argument("--snr", type=float, default=0.5, help="SNR value for (annealed) Langevin dynmaics.")
     parser.add_argument("--N", type=int, default=30, help="Number of reverse steps")
+    parser.add_argument("--condition", type=str, choices=("no", "yes"), default="no", help="no for Spec, yes for ConditionalSpec")
+
     args = parser.parse_args()
 
-    noisy_dir = join(args.test_dir, 'mix_single/')
+    noisy_dir = join(args.test_dir, 'mix_clean/')
+    clean_dir = join(args.test_dir, 's1/')
     checkpoint_file = args.ckpt
     corrector_cls = args.corrector
 
@@ -34,8 +42,12 @@ if __name__ == '__main__':
     N = args.N
     corrector_steps = args.corrector_steps
 
-    # Load score model 
-    model = ScoreModel.load_from_checkpoint(checkpoint_file, base_dir='', batch_size=16, num_workers=0, kwargs=dict(gpu=False))
+    # Load score model
+    if args.condition == "no": 
+        model = ScoreModel.load_from_checkpoint(checkpoint_file, base_dir='', batch_size=16, num_workers=0, kwargs=dict(gpu=False))
+    elif args.condition == "yes":
+        model = ConditionalScoreModel.load_from_checkpoint(checkpoint_file, base_dir='', batch_size=16, num_workers=0, kwargs=dict(gpu=False))
+
     model.eval(no_ema=False)
     model.cuda()
 
@@ -56,10 +68,20 @@ if __name__ == '__main__':
         Y = torch.unsqueeze(model._forward_transform(model._stft(y.cuda())), 0)
         Y = pad_spec(Y)
         
+        # spk embedding extraction
+        spk_emb_extractor=wespeaker.Speaker(lang='en')
+        clean_file = join(clean_dir,filename)
+        spk_emb = torch.tensor(spk_emb_extractor.extract_embedding(clean_file)).unsqueeze(1).to(Y.device)
+
         # Reverse sampling
-        sampler = model.get_pc_sampler(
-            'reverse_diffusion', corrector_cls, Y.cuda(), N=N, 
-            corrector_steps=corrector_steps, snr=snr)
+        if args.condition == "no": 
+            sampler = model.get_pc_sampler(
+                'reverse_diffusion', corrector_cls, Y.cuda(), N=N, 
+                corrector_steps=corrector_steps, snr=snr)
+        else: 
+            sampler = model.get_pc_sampler(
+                'reverse_diffusion', corrector_cls, Y.cuda(), condition=spk_emb, N=N, 
+                corrector_steps=corrector_steps, snr=snr)
         sample, _ = sampler()
         
         # Backward transform in time domain

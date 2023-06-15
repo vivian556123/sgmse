@@ -24,7 +24,7 @@ def from_flattened_numpy(x, shape):
 
 
 def get_pc_sampler(
-    predictor_name, corrector_name, sde, score_fn, y,
+    predictor_name, corrector_name, sde, score_fn, y, condition, 
     denoise=True, eps=3e-2, snr=0.1, corrector_steps=1, probability_flow: bool = False,
     intermediate=False, **kwargs
 ):
@@ -57,8 +57,8 @@ def get_pc_sampler(
             for i in range(sde.N):
                 t = timesteps[i]
                 vec_t = torch.ones(y.shape[0], device=y.device) * t
-                xt, xt_mean = corrector.update_fn(xt, vec_t, y)
-                xt, xt_mean = predictor.update_fn(xt, vec_t, y)
+                xt, xt_mean = corrector.update_fn(xt, vec_t, y, condition)
+                xt, xt_mean = predictor.update_fn(xt, vec_t, y, condition)
             x_result = xt_mean if denoise else xt
             ns = sde.N * (corrector.n_steps + 1)
             return x_result, ns
@@ -67,7 +67,7 @@ def get_pc_sampler(
 
 
 def get_ode_sampler(
-    sde, score_fn, y, inverse_scaler=None,
+    sde, score_fn, y, condition, inverse_scaler=None,
     denoise=True, rtol=1e-5, atol=1e-5,
     method='RK45', eps=3e-2, device='cuda', **kwargs
 ):
@@ -94,7 +94,7 @@ def get_ode_sampler(
 
     def denoise_update_fn(x):
         vec_eps = torch.ones(x.shape[0], device=x.device) * eps
-        _, x = predictor.update_fn(x, vec_eps, y)
+        _, x = predictor.update_fn(x, vec_eps, y, condition)
         return x
 
     def drift_fn(x, t, y):

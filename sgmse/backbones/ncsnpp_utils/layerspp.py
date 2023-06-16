@@ -325,9 +325,11 @@ class ResnetBlockConditionalBigGANpp(nn.Module):
     #                     only_cross_attention=False,
     #                     upcast_attention=False,
     #                 )
-    self.spk_emb_trans = nn.Linear(256, out_ch)
-    #self.cross_attn_layers=PreNorm(out_ch, CrossAttention(out_ch)) 
-    self.cross_attn = nn.MultiheadAttention(out_ch, 8, batch_first =True) 
+    # self.spk_emb_trans = nn.Linear(256, out_ch)
+    # #self.cross_attn_layers=PreNorm(out_ch, CrossAttention(out_ch)) 
+    # self.cross_attn = nn.MultiheadAttention(out_ch, 8, batch_first =True)
+    self.fuse = nn.Linear(out_ch+256, out_ch)
+     
 
   def forward(self, x, temb=None, encoder_hidden_states=None):
     h = self.act(self.GroupNorm_0(x))
@@ -366,11 +368,15 @@ class ResnetBlockConditionalBigGANpp(nn.Module):
     residual = h
 
     inner_dim = h.shape[1]
-    h = h.permute(0, 2, 3, 1).reshape(batch, height * width, inner_dim)
-    encoder_hidden_states = self.spk_emb_trans(encoder_hidden_states)
+    # h = h.permute(0, 2, 3, 1).reshape(batch, height * width, inner_dim)
+    # encoder_hidden_states = self.spk_emb_trans(encoder_hidden_states)
+    
+    h = h.reshape(batch, height * width, inner_dim)
+    encoder_hidden_states = encoder_hidden_states.repeat(1, height * width, 1)
+    h = self.fuse(torch.concat((h, encoder_hidden_states), dim=2))
     #h = self.proj_in(h) 
     #print("h.shape",h.shape,"temb", temb.shape,"encoder_hidden_states", encoder_hidden_states.shape, "encoder_hidden_states.dim",encoder_hidden_states.dim())
-    h, _ = self.cross_attn(query=h, key=encoder_hidden_states, value=encoder_hidden_states)
+    #h, _ = self.cross_attn(query=h, key=encoder_hidden_states, value=encoder_hidden_states)
     #h = self.proj_out(h)
     h = h.reshape(batch, height, width, inner_dim).permute(0, 3, 1, 2).contiguous()
     h = h + residual
